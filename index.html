@@ -1,0 +1,512 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MAYANK KING 4 PLAYER RACING</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#07111d;color:white;font-family:Arial;overflow:hidden}
+#game{position:fixed;inset:0}
+#menu{position:fixed;z-index:5;inset:0;display:grid;place-items:center;background:linear-gradient(140deg,#07111d,#16466b);padding:15px;overflow:auto}
+.panel{width:min(440px,100%);padding:24px;background:#102338ee;border:1px solid #3e7497;border-radius:20px;text-align:center;box-shadow:0 15px 60px #0009}
+h1{color:#34dcff;font-size:27px;margin:5px}
+input,select,button{width:100%;padding:13px;margin-top:10px;border:0;border-radius:9px;font-size:16px}
+input,select{background:#edf7ff;color:#111}
+button{background:linear-gradient(90deg,#087dff,#00c6c9);color:white;font-weight:bold;cursor:pointer}
+button:disabled{opacity:.4}
+#status{color:#78e8ff;margin:12px 0;min-height:25px}
+#room{color:#ffe46c;font-size:24px;font-weight:bold}
+.small{font-size:12px;color:#b8cbdc;line-height:1.6}
+#hud{display:none;position:fixed;z-index:2;top:10px;left:10px;right:10px;pointer-events:none}
+.tag{display:inline-block;padding:9px 12px;background:#071b2ddd;border:1px solid #47758f;border-radius:10px;margin:3px;font-size:13px}
+#playersList{position:fixed;right:10px;top:100px;z-index:2;background:#071b2ddd;border:1px solid #47758f;border-radius:12px;padding:10px;font-size:12px;min-width:145px}
+#carBox{position:fixed;top:10px;right:10px;z-index:4;width:125px}
+#carBox button{padding:9px;margin:2px 0;font-size:12px}
+#controls{display:none;position:fixed;z-index:3;bottom:15px;left:12px;right:12px;justify-content:space-between;align-items:end;pointer-events:none}
+.pad{display:flex;gap:8px;pointer-events:auto}
+.ctrl{width:62px;height:62px;border-radius:50%;border:2px solid #71dfff;background:#092c48dd;color:white;font-size:23px;touch-action:none;padding:0}
+#gas{background:#087b50dd}
+#brake{background:#a52c36dd}
+</style>
+</head>
+<body>
+
+<div id="game"></div>
+
+<div id="menu">
+<div class="panel">
+<h1>👑 MAYANK KING</h1>
+<h3>🏎️ 4 PLAYER ONLINE RACING</h3>
+<p class="small">Create a room and invite three friends!</p>
+
+<input id="name" maxlength="15" value="MAYANK KING" placeholder="Your player name">
+
+<button onclick="createRoom()">🏁 CREATE ROOM</button>
+
+<hr style="border-color:#456">
+<select id="friendName">
+<option value="DEV">DEV</option>
+<option value="ROHIT">ROHIT</option>
+<option value="RAJ">RAJ</option>
+</select>
+<input id="roomInput" maxlength="6" placeholder="Enter 6 Digit Room ID">
+<button onclick="joinRoom()">🚘 JOIN ROOM</button>
+
+<div id="status">Ready to race!</div>
+<div id="room"></div>
+<p class="small">
+Maximum 4 players: MAYANK KING, DEV, ROHIT, RAJ.<br>
+Share your room ID with your friends.
+</p>
+</div>
+</div>
+
+<div id="hud">
+<span class="tag">👑 MAYANK RACING</span>
+<span class="tag">⚡ <span id="speed">0</span> KM/H</span>
+<span class="tag">🏁 <span id="rank">1</span>/4</span>
+<span class="tag">ROOM <span id="roomHud">------</span></span>
+</div>
+
+<div id="carBox" style="display:none">
+<button onclick="changeCar(-1)">◀ PREVIOUS</button>
+<button onclick="changeCar(1)">NEXT CAR ▶</button>
+<div class="tag" id="carName">BLUE CAR</div>
+</div>
+
+<div id="playersList" style="display:none">
+<b>🏆 PLAYERS</b>
+<div id="list"></div>
+</div>
+
+<div id="controls">
+<div class="pad">
+<button class="ctrl" id="left">◀</button>
+<button class="ctrl" id="right">▶</button>
+</div>
+<div class="pad">
+<button class="ctrl" id="brake">▼</button>
+<button class="ctrl" id="gas">▲</button>
+</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r160/three.min.js"></script>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+
+<script>
+const $=id=>document.getElementById(id);
+
+const NAMES=["MAYANK KING","DEV","ROHIT","RAJ"];
+const COLORS=[0x087fff,0xff2525,0x20d85a,0xffd32c];
+const CAR_NAMES=["BLUE SUPERCAR","RED SUPERCAR","GREEN SUPERCAR","YELLOW SUPERCAR"];
+
+let peer,host=false,roomId="",myName="",mySlot=0;
+let connections={};
+let players={};
+let scene,camera,renderer,clock;
+let myCar,carModels={};
+let speed=0,steer=0;
+let carChoice=0;
+let keys={},held={};
+let lastSend=0;
+let started=false;
+
+function say(s){$("status").textContent=s}
+
+function createRoom(){
+ if(typeof Peer==="undefined"){say("PeerJS failed to load. Check internet.");return}
+ myName="MAYANK KING";
+ host=true;
+ mySlot=0;
+ roomId=String(Math.floor(100000+Math.random()*900000));
+ say("Creating room...");
+ peer=new Peer("mayank-race-"+roomId);
+ peer.on("open",()=>{
+  players[0]=newPlayer(0,myName);
+  $("room").textContent="ROOM ID: "+roomId;
+  say("Room created! Invite DEV, ROHIT and RAJ.");
+  startGame();
+ });
+ peer.on("connection",conn=>{
+  conn.on("data",data=>{
+   if(data.type==="hello"){
+    let slot=NAMES.indexOf(data.name);
+    if(slot<1||players[slot]||Object.keys(connections).length>=3){
+     conn.send({type:"reject",message:"Name unavailable or room full"});
+     conn.close();
+     return;
+    }
+    connections[slot]=conn;
+    players[slot]=newPlayer(slot,data.name);
+    conn.send({type:"welcome",slot:slot,players:players});
+    say(data.name+" joined!");
+    updateList();
+    broadcast();
+   }
+   if(data.type==="position"&&players[data.slot]){
+    Object.assign(players[data.slot],data);
+    broadcast();
+   }
+  });
+  conn.on("close",()=>{
+   let slot=Object.keys(connections).find(k=>connections[k]===conn);
+   if(slot!==undefined){
+    delete connections[slot];
+    delete players[slot];
+    updateList();
+    broadcast();
+   }
+  });
+ });
+ peer.on("error",e=>say("Server error: "+e.type+". Try another Room ID."));
+}
+
+function joinRoom(){
+ if(typeof Peer==="undefined"){say("PeerJS failed to load.");return}
+ roomId=$("roomInput").value.trim();
+ if(!/^\d{6}$/.test(roomId)){say("Enter a valid 6 digit Room ID");return}
+ myName=$("friendName").value;
+ host=false;
+ say("Connecting...");
+ peer=new Peer();
+ peer.on("open",()=>{
+  let conn=peer.connect("mayank-race-"+roomId,{reliable:true});
+  connections[0]=conn;
+  conn.on("open",()=>{
+   conn.send({type:"hello",name:myName});
+  });
+  conn.on("data",data=>{
+   if(data.type==="reject"){
+    say(data.message);
+    conn.close();
+    return;
+   }
+   if(data.type==="welcome"){
+    mySlot=data.slot;
+    players=data.players;
+    say("Welcome "+myName+"! Connected.");
+    startGame();
+    updateList();
+   }
+   if(data.type==="state"){
+    players=data.players;
+    updateList();
+   }
+  });
+  conn.on("close",()=>{
+   say("Host disconnected.");
+  });
+  conn.on("error",()=>say("Connection error."));
+ });
+ peer.on("error",e=>say("Could not connect: "+e.type));
+}
+
+function newPlayer(slot,name){
+ return {
+  slot,name,x:(slot-1.5)*3,z:slot===0?5:0,
+  angle:0,speed:0,car:slot
+ };
+}
+
+function startGame(){
+ if(started)return;
+ started=true;
+ $("menu").style.display="none";
+ $("hud").style.display="block";
+ $("controls").style.display="flex";
+ $("carBox").style.display="block";
+ $("playersList").style.display="block";
+ $("roomHud").textContent=roomId;
+ init3D();
+}
+
+function broadcast(){
+ if(!host)return;
+ let packet={type:"state",players:players};
+ Object.values(connections).forEach(c=>{
+  if(c&&c.open)c.send(packet);
+ });
+ updateList();
+}
+
+function updateList(){
+ let html="";
+ for(let i=0;i<4;i++){
+  let p=players[i];
+  html+=`<div style="padding:6px;border-bottom:1px solid #456">
+  ${p?"🟢":"⚫"} ${NAMES[i]} ${p?"":"(Waiting)"}
+  </div>`;
+ }
+ $("list").innerHTML=html;
+ $("rank").textContent=mySlot+1;
+}
+
+function changeCar(d){
+ carChoice=(carChoice+d+4)%4;
+ $("carName").textContent=CAR_NAMES[carChoice];
+ if(players[mySlot]){
+  players[mySlot].car=carChoice;
+  if(myCar)updateCarColor(myCar,COLORS[carChoice]);
+  sendPosition();
+ }
+}
+
+function updateCarColor(car,color){
+ car.children[0].material.color.setHex(color);
+}
+
+function makeCar(color){
+ let g=new THREE.Group();
+ const mat=new THREE.MeshStandardMaterial({
+  color:color,metalness:.65,roughness:.24
+ });
+ let body=new THREE.Mesh(new THREE.BoxGeometry(2,0.65,4),mat);
+ body.position.y=.65;
+ body.castShadow=true;
+ g.add(body);
+
+ let cabin=new THREE.Mesh(
+  new THREE.BoxGeometry(1.5,.8,1.8),
+  new THREE.MeshStandardMaterial({color:0x172b3c,metalness:.5,roughness:.15})
+ );
+ cabin.position.set(0,1.25,-.2);
+ g.add(cabin);
+
+ let glass=new THREE.Mesh(
+  new THREE.BoxGeometry(1.35,.08,1.5),
+  new THREE.MeshStandardMaterial({color:0x8bdcf4,metalness:.5,roughness:.1})
+ );
+ glass.position.set(0,1.68,-.2);
+ g.add(glass);
+
+ for(let x of [-1,1]){
+  for(let z of [-1.3,1.3]){
+   let w=new THREE.Mesh(
+    new THREE.CylinderGeometry(.42,.42,.3,20),
+    new THREE.MeshStandardMaterial({color:0x111111})
+   );
+   w.rotation.z=Math.PI/2;
+   w.position.set(x,.4,z);
+   g.add(w);
+  }
+ }
+ return g;
+}
+
+function init3D(){
+ scene=new THREE.Scene();
+ scene.background=new THREE.Color(0x83b9d7);
+ scene.fog=new THREE.Fog(0x83b9d7,70,220);
+
+ camera=new THREE.PerspectiveCamera(65,innerWidth/innerHeight,.1,500);
+ renderer=new THREE.WebGLRenderer({antialias:true});
+ renderer.setSize(innerWidth,innerHeight);
+ renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+ renderer.shadowMap.enabled=true;
+ renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+ $("game").appendChild(renderer.domElement);
+
+ clock=new THREE.Clock();
+ scene.add(new THREE.HemisphereLight(0xffffff,0x41552b,2));
+
+ let sun=new THREE.DirectionalLight(0xffffff,2.2);
+ sun.position.set(-30,50,20);
+ sun.castShadow=true;
+ scene.add(sun);
+
+ let ground=new THREE.Mesh(
+  new THREE.PlaneGeometry(300,700),
+  new THREE.MeshStandardMaterial({color:0x357b40})
+ );
+ ground.rotation.x=-Math.PI/2;
+ ground.position.z=-150;
+ scene.add(ground);
+
+ let road=new THREE.Mesh(
+  new THREE.PlaneGeometry(20,700),
+  new THREE.MeshStandardMaterial({color:0x292d32,roughness:.9})
+ );
+ road.rotation.x=-Math.PI/2;
+ road.position.y=.03;
+ road.position.z=-150;
+ scene.add(road);
+
+ for(let z=-500;z<200;z+=12){
+  let line=new THREE.Mesh(
+   new THREE.BoxGeometry(.2,.04,5),
+   new THREE.MeshBasicMaterial({color:0xffffff})
+  );
+  line.position.set(0,.08,z);
+  scene.add(line);
+ }
+
+ for(let z=-500;z<200;z+=5){
+  for(let x of [-9.8,9.8]){
+   let edge=new THREE.Mesh(
+    new THREE.BoxGeometry(.3,.1,3),
+    new THREE.MeshStandardMaterial({color:0xffd52a})
+   );
+   edge.position.set(x,.08,z);
+   scene.add(edge);
+  }
+ }
+
+ for(let z=-480;z<200;z+=15){
+  for(let x of [-15,15]){
+   let trunk=new THREE.Mesh(
+    new THREE.CylinderGeometry(.25,.4,2,8),
+    new THREE.MeshStandardMaterial({color:0x65401d})
+   );
+   trunk.position.set(x,1,z);
+   scene.add(trunk);
+   let leaves=new THREE.Mesh(
+    new THREE.ConeGeometry(2.5,5,8),
+    new THREE.MeshStandardMaterial({color:0x12642c})
+   );
+   leaves.position.set(x,4,z);
+   scene.add(leaves);
+  }
+ }
+
+ for(let i=0;i<4;i++){
+  let car=makeCar(COLORS[i]);
+  carModels[i]=car;
+  scene.add(car);
+ }
+ myCar=carModels[mySlot];
+ carChoice=players[mySlot]?.car||mySlot;
+ updateCarColor(myCar,COLORS[carChoice]);
+
+ if(!players[mySlot])players[mySlot]=newPlayer(mySlot,myName);
+ myCar.position.set(players[mySlot].x,.5,players[mySlot].z);
+
+ camera.position.set(0,7,13);
+ window.addEventListener("resize",resize);
+ animate();
+}
+
+function resize(){
+ camera.aspect=innerWidth/innerHeight;
+ camera.updateProjectionMatrix();
+ renderer.setSize(innerWidth,innerHeight);
+}
+
+function sendPosition(){
+ if(!players[mySlot])return;
+ let p=players[mySlot];
+ p.x=myCar.position.x;
+ p.z=myCar.position.z;
+ p.angle=myCar.rotation.y;
+ p.speed=speed;
+ p.car=carChoice;
+
+ if(host){
+  broadcast();
+ }else{
+  let c=connections[0];
+  if(c&&c.open){
+   c.send({type:"position",slot:mySlot,x:p.x,z:p.z,
+   angle:p.angle,speed:p.speed,car:p.car});
+  }
+ }
+}
+
+function animate(){
+ requestAnimationFrame(animate);
+ let dt=Math.min(clock.getDelta(),.04);
+
+ let accel=keys.ArrowUp||keys.w||held.gas;
+ let brake=keys.ArrowDown||keys.s||held.brake;
+ let left=keys.ArrowLeft||keys.a||held.left;
+ let right=keys.ArrowRight||keys.d||held.right;
+
+ if(accel)speed+=24*dt;
+ else speed-=7*dt;
+ if(brake)speed-=35*dt;
+ speed=THREE.MathUtils.clamp(speed,0,55);
+
+ steer=(right?1:0)-(left?1:0);
+
+ myCar.rotation.y-=steer*dt*(.8+speed/40);
+ let dir=new THREE.Vector3(
+  Math.sin(myCar.rotation.y),0,Math.cos(myCar.rotation.y)
+ );
+ myCar.position.addScaledVector(dir,-speed*dt*.23);
+
+ myCar.position.x=THREE.MathUtils.clamp(myCar.position.x,-8,8);
+ myCar.position.z=THREE.MathUtils.clamp(myCar.position.z,-500,180);
+
+ if(players[mySlot]){
+  players[mySlot].x=myCar.position.x;
+  players[mySlot].z=myCar.position.z;
+  players[mySlot].angle=myCar.rotation.y;
+  players[mySlot].speed=speed;
+  players[mySlot].car=carChoice;
+ }
+
+ // Update all other players' cars
+ for(let i=0;i<4;i++){
+  if(i===mySlot)continue;
+  let p=players[i];
+  let car=carModels[i];
+  if(p&&car){
+   car.visible=true;
+   car.position.x=THREE.MathUtils.lerp(car.position.x,p.x,.18);
+   car.position.z=THREE.MathUtils.lerp(car.position.z,p.z,.18);
+   car.rotation.y=p.angle||0;
+   let color=COLORS[p.car??i];
+   updateCarColor(car,color);
+  }else if(car){
+   car.visible=false;
+  }
+ }
+
+ camera.position.lerp(new THREE.Vector3(
+  myCar.position.x,myCar.position.y+6,myCar.position.z+12
+ ),.09);
+ camera.lookAt(myCar.position.x,myCar.position.y,myCar.position.z-5);
+
+ $("speed").textContent=Math.round(speed*3.6);
+
+ lastSend+=dt;
+ if(lastSend>.08){
+  lastSend=0;
+  sendPosition();
+ }
+ renderer.render(scene,camera);
+}
+
+window.addEventListener("keydown",e=>{
+ keys[e.key]=true;
+ if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key))e.preventDefault();
+});
+window.addEventListener("keyup",e=>keys[e.key]=false);
+
+function bind(id,k){
+ let el=$(id);
+ el.addEventListener("pointerdown",e=>{
+  e.preventDefault();
+  held[k]=true;
+  el.setPointerCapture(e.pointerId);
+ });
+ ["pointerup","pointercancel","lostpointercapture"].forEach(ev=>{
+  el.addEventListener(ev,()=>held[k]=false);
+ });
+}
+bind("left","left");
+bind("right","right");
+bind("gas","gas");
+bind("brake","brake");
+
+window.addEventListener("blur",()=>{
+ keys={};held={};
+});
+
+window.addEventListener("beforeunload",()=>{
+ if(peer)peer.destroy();
+});
+</script>
+</body>
+</html>
